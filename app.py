@@ -1,285 +1,142 @@
-import streamlit as st
-import pandas as pd
+# ============================================================
+# BANK MARKETING PREDICTION — STREAMLIT APP (app.py)
+# ============================================================
+
+import os
 import joblib
+import pandas as pd
+import streamlit as st
+import urllib.request
 
-
-# ============================================================
-# PAGE CONFIGURATION
-# ============================================================
-
+# Set Streamlit Page Configuration
 st.set_page_config(
-    page_title="Bank Marketing Prediction",
+    page_title="Bank Term Deposit Prediction",
     page_icon="🏦",
     layout="wide"
 )
 
+# ------------------------------------------------------------
+# 1. LOAD MODEL PIPELINE FROM GOOGLE DRIVE (DIRECT URLLIB DOWNLOAD)
+# ------------------------------------------------------------
+FILE_ID = "1IeM5dID45LHFEwX3UgovjJeQkpnlOgWW"
+MODEL_FILE = "model.pkl"
 
-# ============================================================
-# LOAD MODEL
-# ============================================================
-import os
-import gdown
-import joblib
 @st.cache_resource
-def load_model():
-    url = "YOUR_GOOGLE_DRIVE_DIRECT_LINK_HERE"
-    output = "model.pkl"
-    if not os.path.exists(output):
-        gdown.download(url, output, quiet=False)
-    return joblib.load(output)
+def load_pipeline(file_id: str, output_path: str):
+    """Downloads model.pkl directly using standard urlopen to avoid any schema bugs."""
+    if not os.path.exists(output_path):
+        with st.spinner("Downloading trained pipeline model from Google Drive..."):
+            url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            
+            # Use urllib to fetch the large file directly
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(url, headers=headers)
+            
+            try:
+                with urllib.request.urlopen(req) as response:
+                    content = response.read()
+                    # Check if Google Drive returned a virus warning confirmation page
+                    if b"uc-download-link" in content or b"confirm=" in content:
+                        # Extract confirmation token if needed, or use export format
+                        pass
+                    with open(output_path, "wb") as f:
+                        f.write(content)
+            except Exception as e:
+                # Fallback URL format
+                alt_url = f"https://docs.google.com/uc?export=download&id={file_id}"
+                urllib.request.urlretrieve(alt_url, output_path)
 
-model = load_model()
+    if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+        raise FileNotFoundError("Downloaded file is missing or too small. Check Google Drive sharing permissions.")
+        
+    pipeline = joblib.load(output_path)
+    return pipeline
+
+# Load model pipeline with error handling
+try:
+    pipeline = load_pipeline(FILE_ID, MODEL_FILE)
+except Exception as e:
+    st.error(f"Error loading model: {e}")
+    st.info("Ensure your Google Drive file access is set to 'Anyone with the link can view'.")
+    st.stop()
 
 
-# ============================================================
-# TITLE
-# ============================================================
+# ------------------------------------------------------------
+# 2. USER INTERFACE & INPUT FORM
+# ------------------------------------------------------------
+st.title("🏦 Bank Term Deposit Prediction")
+st.markdown("Enter customer details below to predict if they will subscribe to a bank term deposit.")
 
-st.title("🏦 Bank Marketing Campaign Prediction")
+st.sidebar.header("Customer Input Form")
 
-st.write(
-    "This application predicts whether a customer is likely "
-    "to subscribe to a bank term deposit."
+# Collect inputs matching feature columns from training dataset
+age = st.sidebar.slider("Age", 18, 95, 35)
+job = st.sidebar.selectbox(
+    "Job Type",
+    ["admin.", "blue-collar", "technician", "services", "management", 
+     "retired", "entrepreneur", "self-employed", "housemaid", "unemployed", "student", "unknown"]
 )
-
-st.divider()
-
-
-# ============================================================
-# INPUT SECTION
-# ============================================================
-
-st.header("Customer Information")
-
-
-col1, col2, col3 = st.columns(3)
-
-
-with col1:
-
-    age = st.number_input(
-        "Age",
-        min_value=18,
-        max_value=100,
-        value=30
-    )
-
-    job = st.selectbox(
-        "Job",
-        [
-            "admin.",
-            "blue-collar",
-            "entrepreneur",
-            "housemaid",
-            "management",
-            "retired",
-            "self-employed",
-            "services",
-            "student",
-            "technician",
-            "unemployed",
-            "unknown"
-        ]
-    )
-
-    marital = st.selectbox(
-        "Marital Status",
-        [
-            "married",
-            "single",
-            "divorced"
-        ]
-    )
-
-    education = st.selectbox(
-        "Education",
-        [
-            "primary",
-            "secondary",
-            "tertiary",
-            "unknown"
-        ]
-    )
-
-    default = st.selectbox(
-        "Has Credit Default?",
-        [
-            "no",
-            "yes",
-            "unknown"
-        ]
-    )
+marital = st.sidebar.selectbox("Marital Status", ["married", "single", "divorced"])
+education = st.sidebar.selectbox("Education Level", ["secondary", "tertiary", "primary", "unknown"])
+default = st.sidebar.selectbox("Credit in Default?", ["no", "yes"])
+balance = st.sidebar.number_input("Average Yearly Balance (€)", value=1000)
+housing = st.sidebar.selectbox("Housing Loan?", ["no", "yes"])
+loan = st.sidebar.selectbox("Personal Loan?", ["no", "yes"])
+contact = st.sidebar.selectbox("Contact Communication Type", ["cellular", "telephone", "unknown"])
+day = st.sidebar.slider("Last Contact Day of Month", 1, 31, 15)
+month = st.sidebar.selectbox(
+    "Last Contact Month", 
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+)
+duration = st.sidebar.number_input("Last Contact Duration (seconds)", value=180)
+campaign = st.sidebar.number_input("Number of Contacts during Campaign", min_value=1, value=1)
+pdays = st.sidebar.number_input("Days since previous campaign contact (-1 = never)", value=-1)
+previous = st.sidebar.number_input("Number of Contacts before Campaign", value=0)
+poutcome = st.sidebar.selectbox("Outcome of Previous Marketing Campaign", ["unknown", "other", "failure", "success"])
 
 
-with col2:
+# Construct DataFrame matching training raw feature names
+input_dict = {
+    "age": age,
+    "job": job,
+    "marital": marital,
+    "education": education,
+    "default": default,
+    "balance": balance,
+    "housing": housing,
+    "loan": loan,
+    "contact": contact,
+    "day": day,
+    "month": month,
+    "duration": duration,
+    "campaign": campaign,
+    "pdays": pdays,
+    "previous": previous,
+    "poutcome": poutcome
+}
 
-    balance = st.number_input(
-        "Account Balance",
-        value=0
-    )
+input_df = pd.DataFrame([input_dict])
 
-    housing = st.selectbox(
-        "Housing Loan?",
-        [
-            "yes",
-            "no"
-        ]
-    )
-
-    loan = st.selectbox(
-        "Personal Loan?",
-        [
-            "yes",
-            "no"
-        ]
-    )
-
-    contact = st.selectbox(
-        "Contact Type",
-        [
-            "cellular",
-            "telephone",
-            "unknown"
-        ]
-    )
-
-    day = st.number_input(
-        "Last Contact Day",
-        min_value=1,
-        max_value=31,
-        value=15
-    )
+st.subheader("Customer Input Summary")
+st.dataframe(input_df)
 
 
-with col3:
+# ------------------------------------------------------------
+# 3. PREDICTION & DISPLAY RESULTS
+# ------------------------------------------------------------
+if st.button("Predict Subscription", type="primary"):
+    try:
+        # Pipeline automatically handles categorical encoding and scaling
+        prediction = pipeline.predict(input_df)[0]
+        proba = pipeline.predict_proba(input_df)[0][1]
 
-    month = st.selectbox(
-        "Last Contact Month",
-        [
-            "jan",
-            "feb",
-            "mar",
-            "apr",
-            "may",
-            "jun",
-            "jul",
-            "aug",
-            "sep",
-            "oct",
-            "nov",
-            "dec"
-        ]
-    )
+        st.markdown("---")
+        st.subheader("Prediction Result")
 
-    duration = st.number_input(
-        "Call Duration (seconds)",
-        min_value=0,
-        value=100
-    )
+        if prediction == 1 or str(prediction).lower() == "yes":
+            st.success(f"🎉 **High Likelihood to Subscribe!** (Probability: {round(proba * 100, 2)}%)")
+        else:
+            st.warning(f"⚠️ **Unlikely to Subscribe.** (Probability: {round(proba * 100, 2)}%)")
 
-    campaign = st.number_input(
-        "Number of Contacts During Campaign",
-        min_value=1,
-        value=1
-    )
-
-    pdays = st.number_input(
-        "Days Since Previous Contact",
-        value=-1
-    )
-
-    previous = st.number_input(
-        "Number of Previous Contacts",
-        min_value=0,
-        value=0
-    )
-
-    poutcome = st.selectbox(
-        "Previous Campaign Outcome",
-        [
-            "unknown",
-            "failure",
-            "other",
-            "success"
-        ]
-    )
-
-
-# ============================================================
-# PREDICTION BUTTON
-# ============================================================
-
-st.divider()
-
-if st.button(
-    "🔮 Predict",
-    use_container_width=True
-):
-
-    # Create input dataframe
-
-    input_data = pd.DataFrame({
-        "age": [age],
-        "job": [job],
-        "marital": [marital],
-        "education": [education],
-        "default": [default],
-        "balance": [balance],
-        "housing": [housing],
-        "loan": [loan],
-        "contact": [contact],
-        "day": [day],
-        "month": [month],
-        "duration": [duration],
-        "campaign": [campaign],
-        "pdays": [pdays],
-        "previous": [previous],
-        "poutcome": [poutcome]
-    })
-
-
-    # Make prediction
-
-    prediction = model.predict(input_data)[0]
-
-
-    # Probability
-
-    probability = model.predict_proba(input_data)[0]
-
-
-    # ========================================================
-    # DISPLAY RESULT
-    # ========================================================
-
-    if prediction == 1:
-
-        st.success(
-            "✅ Prediction: Customer is likely to subscribe."
-        )
-
-        st.write(
-            f"Probability of subscription: "
-            f"{probability[1] * 100:.2f}%"
-        )
-
-    else:
-
-        st.warning(
-            "❌ Prediction: Customer is unlikely to subscribe."
-        )
-
-        st.write(
-            f"Probability of subscription: "
-            f"{probability[0] * 100:.2f}%"
-        )
-
-
-    # Show input
-
-    st.subheader("Customer Information")
-
-    st.dataframe(
-        input_data,
-        use_container_width=True
-    )
+    except Exception as err:
+        st.error(f"Prediction failed: {err}")

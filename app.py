@@ -17,11 +17,16 @@ st.set_page_config(
 # ============================================================
 # LOAD MODEL
 # ============================================================
-
+import os
+import gdown
+import joblib
 @st.cache_resource
 def load_model():
-    return joblib.load("model.pkl")
-
+    url = "YOUR_GOOGLE_DRIVE_DIRECT_LINK_HERE"
+    output = "model.pkl"
+    if not os.path.exists(output):
+        gdown.download(url, output, quiet=False)
+    return joblib.load(output)
 
 model = load_model()
 

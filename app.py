@@ -18,36 +18,23 @@ st.set_page_config(
 # ------------------------------------------------------------
 # 1. LOAD MODEL PIPELINE FROM GOOGLE DRIVE (DIRECT URLLIB DOWNLOAD)
 # ------------------------------------------------------------
+# ------------------------------------------------------------
+# 1. LOAD MODEL PIPELINE FROM GOOGLE DRIVE (ROBUST GDOWN)
+# ------------------------------------------------------------
 FILE_ID = "1IeM5dID45LHFEwX3UgovjJeQkpnlOgWW"
 MODEL_FILE = "model.pkl"
 
 @st.cache_resource
 def load_pipeline(file_id: str, output_path: str):
-    """Downloads model.pkl directly using standard urlopen to avoid any schema bugs."""
-    if not os.path.exists(output_path):
-        with st.spinner("Downloading trained pipeline model from Google Drive..."):
-            url = f"https://drive.google.com/uc?export=download&id={file_id}"
-            
-            # Use urllib to fetch the large file directly
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            req = urllib.request.Request(url, headers=headers)
-            
-            try:
-                with urllib.request.urlopen(req) as response:
-                    content = response.read()
-                    # Check if Google Drive returned a virus warning confirmation page
-                    if b"uc-download-link" in content or b"confirm=" in content:
-                        # Extract confirmation token if needed, or use export format
-                        pass
-                    with open(output_path, "wb") as f:
-                        f.write(content)
-            except Exception as e:
-                # Fallback URL format
-                alt_url = f"https://docs.google.com/uc?export=download&id={file_id}"
-                urllib.request.urlretrieve(alt_url, output_path)
-
+    """Downloads model.pkl safely using gdown with fuzzy matching."""
     if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
-        raise FileNotFoundError("Downloaded file is missing or too small. Check Google Drive sharing permissions.")
+        with st.spinner("Downloading trained pipeline model from Google Drive..."):
+            import gdown
+            url = f"https://drive.google.com/uc?id={file_id}"
+            gdown.download(url, output_path, quiet=False, fuzzy=True)
+            
+    if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+        raise ValueError("Downloaded file is too small or invalid. Please ensure Google Drive sharing permissions are set to 'Anyone with the link can view'.")
         
     pipeline = joblib.load(output_path)
     return pipeline
@@ -59,6 +46,7 @@ except Exception as e:
     st.error(f"Error loading model: {e}")
     st.info("Ensure your Google Drive file access is set to 'Anyone with the link can view'.")
     st.stop()
+     
 
 
 # ------------------------------------------------------------
